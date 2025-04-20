@@ -1,16 +1,21 @@
 package org.tus.libraryuser.service.impl;
 
 import lombok.AllArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.tus.libraryuser.dto.CheckedBooksDto;
 import org.tus.libraryuser.dto.LibraryUserDto;
 import org.tus.libraryuser.entity.LibraryUser;
 import org.tus.libraryuser.exception.ResourceAlreadyExistsException;
 import org.tus.libraryuser.exception.ResourceNotFoundException;
+import org.tus.libraryuser.feign.BookInterface;
+import org.tus.libraryuser.feign.CheckedBookInterface;
 import org.tus.libraryuser.mapper.LibraryUserMapper;
 import org.tus.libraryuser.repository.LibraryUserRepository;
 import org.tus.libraryuser.service.ILibraryUserService;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -20,7 +25,12 @@ import java.util.Optional;
 public class LibraryUserServiceImpl implements ILibraryUserService {
 
     private LibraryUserRepository libraryUserRepository;
-    //private CheckedBooksRepository checkedBooksRepository;
+
+    @Autowired
+    BookInterface bookInterface;
+
+    @Autowired
+    CheckedBookInterface checkedBookInterface;
 
     @Override
     public void addLibraryUser(LibraryUserDto libraryUserDto) {
@@ -32,52 +42,25 @@ public class LibraryUserServiceImpl implements ILibraryUserService {
         libraryUserRepository.save(libraryUser);
     }
 
-/*    @Override
-    public CheckedBooksDto checkoutLibraryBook(int libraryUserId, String bookName, LibraryUserDto libraryUserDto) {
-        libraryUserRepository.findByLibraryUserId(libraryUserId).orElseThrow(
-                () -> new ResourceNotFoundException("LibraryUser","libraryUserId",String.valueOf(libraryUserId))
-        );
-
-        LibraryUser libraryUser = libraryUserRepository.findLibraryUserByUsername(libraryUserDto.getUsername()).orElseThrow(
-                () -> new ResourceNotFoundException("LibraryUser","username",libraryUserDto.getUsername())
-        );
-
-        Books book = booksRepository.findBookByBookName(bookName).orElseThrow(
-                () -> new ResourceNotFoundException("Book","bookName",bookName)
-        );
-
-        CheckedBooks checkedBook = new CheckedBooks();
-        checkedBook.setBook_name(bookName);
-        checkedBook.setLibraryUserId(libraryUser.getLibraryUserId());
-        checkedBook.setCheckedStatus("ON_TIME");
-        checkedBooksRepository.save(checkedBook);
-        return mapToCheckedBooksDto(checkedBook, new CheckedBooksDto());
-    }*/
 
     @Override
     public LibraryUserDto fetchUserById(int id, boolean isReversed) {
         LibraryUser libraryUser = libraryUserRepository.findByLibraryUserId(id).orElseThrow(
                 () -> new ResourceNotFoundException("LibraryUser","libraryUserId",String.valueOf(id))
         );
-
-/*        List<CheckedBooks> usersCheckBooks = checkedBooksRepository.findByLibraryUserId(libraryUser.getLibraryUserId());
-
-        List<CheckedBooksDto> checkedBooksDtos;
-        if (isReversed) {
-            checkedBooksDtos = usersCheckBooks.stream()
-                    .map(checkedBookRecord -> mapToCheckedBooksDto(checkedBookRecord, new CheckedBooksDto()))
-                    .sorted(Comparator.comparing(CheckedBooksDto::getCheckoutDate).reversed())
-                    .toList();
+        ResponseEntity<List<CheckedBooksDto>> response = checkedBookInterface.getCheckedBooks(id);
+        List<CheckedBooksDto> userCheckedBooksDto = new ArrayList<>();
+        if(response.getStatusCode().is4xxClientError())
+        {
+            userCheckedBooksDto = null;
         }
         else{
-            checkedBooksDtos = usersCheckBooks.stream()
-                    .map(checkedBookRecord -> mapToCheckedBooksDto(checkedBookRecord, new CheckedBooksDto()))
-                    .toList();
-        }*/
+            userCheckedBooksDto = response.getBody();
+        }
 
         LibraryUserDto libraryUserDto = LibraryUserMapper.mapToLibraryUserDto(libraryUser, new LibraryUserDto());
         libraryUserDto.setLibrary_user_id(libraryUser.getLibraryUserId());
-        //libraryUserDto.setCheckedBooks(checkedBooksDtos);
+        libraryUserDto.setCheckedBooks(userCheckedBooksDto);
         return libraryUserDto;
     }
 
@@ -88,16 +71,12 @@ public class LibraryUserServiceImpl implements ILibraryUserService {
                 () -> new ResourceNotFoundException("LibraryUser","username",username)
         );
 
-/*        List<CheckedBooks> usersCheckBooks = checkedBooksRepository.findByLibraryUserId(libraryUser.getLibraryUserId());
+        List<CheckedBooksDto> userCheckedBooksDto = checkedBookInterface.getCheckedBooks(libraryUser.getLibraryUserId()).getBody();
 
-        List<CheckedBooksDto> checkedBooksDtos = usersCheckBooks.stream()
-                .map(checkedBookRecord -> mapToCheckedBooksDto(checkedBookRecord, new CheckedBooksDto()))
-                .sorted(Comparator.comparing(CheckedBooksDto::getCheckoutDate).reversed())
-                .toList();*/
 
         LibraryUserDto libraryUserDto = LibraryUserMapper.mapToLibraryUserDto(libraryUser, new LibraryUserDto());
         libraryUserDto.setLibrary_user_id(libraryUser.getLibraryUserId());
-        //libraryUserDto.setCheckedBooks(checkedBooksDtos);
+        libraryUserDto.setCheckedBooks(userCheckedBooksDto);
         return libraryUserDto;
     }
 
@@ -121,11 +100,12 @@ public class LibraryUserServiceImpl implements ILibraryUserService {
                 () -> new ResourceNotFoundException("LibraryUser","libraryUserId",String.valueOf(id))
         );
 
-//        List<CheckedBooks> usersCheckBooks = checkedBooksRepository.findByLibraryUserId(libraryUser.getLibraryUserId());
-//
-//        if(!usersCheckBooks.isEmpty()) {
-//            checkedBooksRepository.deleteAll(usersCheckBooks);
-//        }
+        List<CheckedBooksDto> userCheckedBooksDto = checkedBookInterface.getCheckedBooks(id).getBody();
+
+        if(!userCheckedBooksDto.isEmpty()) {
+            for(CheckedBooksDto record: userCheckedBooksDto)
+                checkedBookInterface.deleteCheckoutBook(record.getLibraryUserId(), record.getCheckedBookId());
+        }
 
         libraryUserRepository.delete(libraryUser);
         return true;
